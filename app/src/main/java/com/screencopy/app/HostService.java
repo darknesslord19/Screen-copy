@@ -43,9 +43,12 @@ public class HostService extends Service {
     public static final String EXTRA_RESULT_DATA = "result_data";
     private static final String CHANNEL_ID = "screencopy_host";
     private static final int NOTIF_ID = 1;
-    private static final int TARGET_MAX_DIM = 900; // yayin cozunurlugu ust siniri
-    private static final int JPEG_QUALITY = 40;
-    private static final long MIN_FRAME_INTERVAL_MS = 60; // ~16 fps
+
+    // Ayarlardan yüklenir
+    private int targetMaxDim = Prefs.DEF_MAX_DIM;
+    private int jpegQuality = Prefs.DEF_QUALITY;
+    private long minFrameIntervalMs = 60;
+    private int port = Protocol.PORT;
 
     private MediaProjection projection;
     private VirtualDisplay virtualDisplay;
@@ -63,6 +66,7 @@ public class HostService extends Service {
     private byte[] latestFrame;
     private long lastSentTime;
     private PowerManager.WakeLock wakeLock;
+    private android.net.wifi.WifiManager.WifiLock wifiLock;
 
     @Override
     public void onCreate() {
@@ -88,6 +92,12 @@ public class HostService extends Service {
             @Override public void onStop() { stopEverything(); }
         }, null);
 
+        // Ayarları yükle
+        targetMaxDim = Prefs.maxDim(this);
+        jpegQuality = Prefs.quality(this);
+        minFrameIntervalMs = Prefs.frameIntervalMs(this);
+        port = Prefs.port(this);
+
         computeDimensions();
         acquireWakeLock();
         startCapture();
@@ -107,8 +117,8 @@ public class HostService extends Service {
 
         float scale = 1f;
         int maxDim = Math.max(fullW, fullH);
-        if (maxDim > TARGET_MAX_DIM) {
-            scale = (float) TARGET_MAX_DIM / maxDim;
+        if (maxDim > targetMaxDim) {
+            scale = (float) targetMaxDim / maxDim;
         }
         capW = Math.max(2, (int) (fullW * scale) & ~1); // cift sayi
         capH = Math.max(2, (int) (fullH * scale) & ~1);
@@ -161,7 +171,7 @@ public class HostService extends Service {
             bitmap.recycle();
         }
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        cropped.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, bos);
+        cropped.compress(Bitmap.CompressFormat.JPEG, jpegQuality, bos);
         cropped.recycle();
         return bos.toByteArray();
     }
@@ -169,7 +179,7 @@ public class HostService extends Service {
     private void serverLoop() {
         while (running.get()) {
             try {
-                serverSocket = new ServerSocket(Protocol.PORT);
+                serverSocket = new ServerSocket(port);
                 serverSocket.setReuseAddress(true);
                 while (running.get()) {
                     Socket socket = serverSocket.accept();
@@ -209,13 +219,18 @@ public class HostService extends Service {
         while (running.get()) {
             byte type = Protocol.readType(in);
             byte[] payload = Protocol.readPayload(in);
-            if (type != Protocol.TYPE_TOUCH) continue;
-            byte action = Protocol.touchAction(payload);
-            float nx = Protocol.touchX(payload);
-            float ny = Protocol.touchY(payload);
-            float x = nx * fullW;
-            float y = ny * fullH;
-            handleTouch(action, x, y);
+            if (type == Protocol.TYPE_TOUCH) {
+                byte action = Protocol.touchAction(payload);
+                float x = Protocol.touchX(payload) * fullW;
+                float y = Protocol.touchY(payload) * fullH;
+                handleTouch(action, x, y);
+            } else if (type == Protocol.TYPE_KEY) {
+                ControlAccessibilityService svc = ControlAccessibilityService.getInstance();
+                if (svc != null && payload.length > 0) svc.performKey(payload[0]);
+            } else if (type == Protocol.TYPE_TEXT) {
+                ControlAccessibilityService svc = ControlAccessibilityService.getInstance();
+                if (svc != null) svc.inputText(new String(payload, java.nio.charset.StandardCharsets.UTF_8));
+            }
         }
     }
 
@@ -276,7 +291,7 @@ public class HostService extends Service {
             DataOutputStream out = clientOut;
             if (out == null) continue;
             long now = System.currentTimeMillis();
-            long wait = MIN_FRAME_INTERVAL_MS - (now - lastSentTime);
+            long wait = minFrameIntervalMs - (now - lastSentTime);
             if (wait > 0) {
                 try { Thread.sleep(wait); } catch (InterruptedException ignored) {}
             }
@@ -293,6 +308,19 @@ public class HostService extends Service {
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ScreenCopy:host");
         wakeLock.acquire(3 * 60 * 60 * 1000L);
+
+        // Ekran kapanınca/kilitlenince Wi-Fi uykuya geçip bağlantıyı düşürmesin
+        try {
+            android.net.wifi.WifiManager wm =
+                    (android.net.wifi.WifiManager) getApplicationContext()
+                            .getSystemService(Context.WIFI_SERVICE);
+            int mode = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                    ? android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                    : android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF;
+            wifiLock = wm.createWifiLock(mode, "ScreenCopy:wifi");
+            wifiLock.setReferenceCounted(false);
+            wifiLock.acquire();
+        } catch (Exception ignored) {}
     }
 
     private void stopEverything() {
@@ -304,6 +332,7 @@ public class HostService extends Service {
         try { if (projection != null) projection.stop(); } catch (Exception ignored) {}
         try { if (captureThread != null) captureThread.quitSafely(); } catch (Exception ignored) {}
         try { if (wakeLock != null && wakeLock.isHeld()) wakeLock.release(); } catch (Exception ignored) {}
+        try { if (wifiLock != null && wifiLock.isHeld()) wifiLock.release(); } catch (Exception ignored) {}
         stopForeground(true);
         stopSelf();
     }
@@ -335,7 +364,7 @@ public class HostService extends Service {
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
         return b.setContentTitle("ScreenCopy yayinda")
-                .setContentText("Ekran paylasiliyor. Port " + Protocol.PORT)
+                .setContentText("Ekran paylasiliyor (arka planda calisir). Port " + Prefs.port(this))
                 .setSmallIcon(R.drawable.ic_launcher)
                 .setOngoing(true)
                 .build();

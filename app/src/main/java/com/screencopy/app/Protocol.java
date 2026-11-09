@@ -15,10 +15,18 @@ public final class Protocol {
     public static final byte TYPE_FRAME = 0;  // Host -> Controller : JPEG kare
     public static final byte TYPE_TOUCH = 1;  // Controller -> Host : dokunma olayı
     public static final byte TYPE_META  = 2;  // Host -> Controller : ekran boyutu
+    public static final byte TYPE_KEY   = 3;  // Controller -> Host : donanım tuşu
+    public static final byte TYPE_TEXT  = 4;  // Controller -> Host : metin girişi
 
     public static final byte ACTION_DOWN = 0;
     public static final byte ACTION_MOVE = 1;
     public static final byte ACTION_UP   = 2;
+
+    // Donanım tuşları (TYPE_KEY payload[0])
+    public static final byte KEY_BACK          = 0;
+    public static final byte KEY_HOME          = 1;
+    public static final byte KEY_RECENTS       = 2;
+    public static final byte KEY_NOTIFICATIONS = 3;
 
     private Protocol() {}
 

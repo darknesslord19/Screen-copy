@@ -28,4 +28,6 @@ android {
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
+    // QR kod üretimi (host) ve tarama (controller)
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
 }
