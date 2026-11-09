@@ -7,12 +7,14 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.media.projection.MediaProjectionManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -38,17 +40,20 @@ import java.util.List;
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQ_PROJECTION = 1001;
+    private static final int BG = 0xFF0E1116;
+    private static final int TEXT = 0xFFE6EAF0;
+    private static final int MUTED = 0xFF8A94A6;
+    private static final int ACCENT = 0xFF2D7FF9;
+
     private EditText ipInput;
     private EditText edMaxDim, edQuality, edFps, edPort;
 
     private final ActivityResultLauncher<ScanOptions> scanLauncher =
             registerForActivityResult(new ScanContract(), result -> {
                 if (result.getContents() != null) {
-                    String content = result.getContents().trim();
-                    content = content.replace("screencopy://", "");
+                    String content = result.getContents().trim().replace("screencopy://", "");
                     ipInput.setText(content);
-                    Toast.makeText(this, "Okundu: " + content + "\nBağlanmak için 'Bağlan'a basın",
-                            Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Okundu: " + content, Toast.LENGTH_SHORT).show();
                 }
             });
 
@@ -56,146 +61,128 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        int pad = dp(20);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, pad, pad, pad);
-        root.setBackgroundColor(Color.parseColor("#101418"));
+        root.setPadding(dp(18), dp(22), dp(18), dp(28));
+        root.setBackgroundColor(BG);
 
         TextView title = new TextView(this);
         title.setText("ScreenCopy");
-        title.setTextSize(28);
-        title.setTextColor(Color.WHITE);
+        title.setTextSize(30);
+        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
+        title.setTextColor(TEXT);
         root.addView(title);
 
-        TextView ip = new TextView(this);
-        ip.setText("Bu cihazin IP adresi:  " + getLocalIp());
-        ip.setTextColor(Color.parseColor("#90CAF9"));
-        ip.setTextSize(16);
-        ip.setPadding(0, dp(10), 0, dp(16));
-        root.addView(ip);
+        TextView sub = new TextView(this);
+        sub.setText("IP:  " + getLocalIp());
+        sub.setTextColor(ACCENT);
+        sub.setTextSize(15);
+        sub.setPadding(0, dp(4), 0, dp(18));
+        root.addView(sub);
 
-        // --- HOST ---
-        root.addView(sectionLabel("Bu telefonu yayinla (Host)"));
-        root.addView(hint("Bozuk/kaynak telefonda bunu secin. Kontrol icin once Erisilebilirlik " +
-                "iznini acin. Yayin arka planda, kilitli ekranda ve ekran kapaliyken de calisir."));
-
-        Button accBtn = button("1) Erisilebilirlik iznini ac");
-        accBtn.setOnClickListener(v -> {
+        // ---------- HOST ----------
+        LinearLayout host = card(root, "Yayınla  ·  Host",
+                "Bu telefonun ekranını paylaş. Arka planda, kilitli ekranda ve ekran kapalıyken çalışır.");
+        host.addView(primaryButton("Yayını başlat", v -> requestProjection()));
+        host.addView(secondaryButton("Erişilebilirlik izni  (kontrol için)", v -> {
             startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-            Toast.makeText(this, "Listeden ScreenCopy'i acin", Toast.LENGTH_LONG).show();
-        });
-        root.addView(accBtn);
-
-        Button hostBtn = button("2) Yayini baslat");
-        hostBtn.setOnClickListener(v -> requestProjection());
-        root.addView(hostBtn);
-
-        Button qrBtn = button("QR goster (controller buradan okusun)");
-        qrBtn.setOnClickListener(v -> showQrDialog());
-        root.addView(qrBtn);
-
-        Button stopBtn = button("Yayini durdur");
-        stopBtn.setOnClickListener(v -> {
+            Toast.makeText(this, "Listeden ScreenCopy'i açın", Toast.LENGTH_LONG).show();
+        }));
+        host.addView(secondaryButton("Ekran kapalıyken görüntü izni  (üstten çizim)", v -> requestOverlay()));
+        host.addView(secondaryButton("QR göster  (controller okutsun)", v -> showQrDialog()));
+        host.addView(secondaryButton("Yayını durdur", v -> {
             stopService(new Intent(this, HostService.class));
-            Toast.makeText(this, "Yayin durduruldu", Toast.LENGTH_SHORT).show();
-        });
-        root.addView(stopBtn);
+            Toast.makeText(this, "Yayın durduruldu", Toast.LENGTH_SHORT).show();
+        }));
 
-        // --- CONTROLLER ---
-        root.addView(spacer(24));
-        root.addView(sectionLabel("Diger telefonu kontrol et (Controller)"));
-        root.addView(hint("Host IP'yi yazin veya QR tarayin. Ikisi ayni Wi-Fi aginda olmali."));
-
-        ipInput = new EditText(this);
-        ipInput.setHint("Host IP veya IP:port");
+        // ---------- CONTROLLER ----------
+        LinearLayout ctrl = card(root, "Kontrol et  ·  Controller",
+                "Karşı telefonu tam ekran görüp dokunarak yönet. Aynı Wi-Fi ağında olun.");
+        ipInput = field("Host IP  veya  IP:port");
         ipInput.setInputType(InputType.TYPE_CLASS_TEXT);
-        ipInput.setTextColor(Color.WHITE);
-        ipInput.setHintTextColor(Color.GRAY);
-        root.addView(ipInput);
-
-        Button scanBtn = button("QR tara");
-        scanBtn.setOnClickListener(v -> {
+        ctrl.addView(ipInput);
+        ctrl.addView(primaryButton("Bağlan ve kontrol et", v -> {
+            String h = ipInput.getText().toString().trim();
+            if (h.isEmpty()) { Toast.makeText(this, "IP girin veya QR tarayın", Toast.LENGTH_SHORT).show(); return; }
+            Intent i = new Intent(this, ControllerActivity.class);
+            i.putExtra("host", h);
+            startActivity(i);
+        }));
+        ctrl.addView(secondaryButton("QR tara", v -> {
             ScanOptions o = new ScanOptions();
-            o.setPrompt("Host telefonun QR kodunu tarayin");
+            o.setPrompt("Host QR kodunu tarayın");
             o.setOrientationLocked(false);
             o.setBeepEnabled(false);
             scanLauncher.launch(o);
-        });
-        root.addView(scanBtn);
+        }));
 
-        Button connBtn = button("Baglan ve kontrol et");
-        connBtn.setOnClickListener(v -> {
-            String host = ipInput.getText().toString().trim();
-            if (host.isEmpty()) { Toast.makeText(this, "IP girin", Toast.LENGTH_SHORT).show(); return; }
-            Intent i = new Intent(this, ControllerActivity.class);
-            i.putExtra("host", host);
-            startActivity(i);
-        });
-        root.addView(connBtn);
-
-        // --- AYARLAR ---
-        root.addView(spacer(24));
-        root.addView(sectionLabel("Ayarlar"));
-        root.addView(hint("Yayin kalitesi ve baglanti. Degisiklikler bir sonraki yayinda gecerli olur."));
-
-        edMaxDim  = labeledField(root, "Cozunurluk ust siniri (px, 200-2000)", Prefs.maxDim(this));
-        edQuality = labeledField(root, "JPEG kalite (10-90)", Prefs.quality(this));
-        edFps     = labeledField(root, "FPS (1-30)", Prefs.fps(this));
-        edPort    = labeledField(root, "Port (1024-65535)", Prefs.port(this));
-
-        Button saveBtn = button("Ayarlari kaydet");
-        saveBtn.setOnClickListener(v -> saveSettings());
-        root.addView(saveBtn);
+        // ---------- AYARLAR ----------
+        LinearLayout settings = card(root, "Ayarlar  ·  Kalite",
+                "Değişiklikler sonraki yayında geçerli olur. Yüksek değer = daha net, daha fazla veri.");
+        edMaxDim  = labeledField(settings, "Çözünürlük üst sınırı (px)", Prefs.maxDim(this));
+        edQuality = labeledField(settings, "JPEG kalite (" + Prefs.MIN_QUALITY + "-" + Prefs.MAX_QUALITY + ")", Prefs.quality(this));
+        edFps     = labeledField(settings, "FPS (" + Prefs.MIN_FPS + "-" + Prefs.MAX_FPS + ")", Prefs.fps(this));
+        edPort    = labeledField(settings, "Port", Prefs.port(this));
+        settings.addView(primaryButton("Ayarları kaydet", v -> saveSettings()));
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(BG);
         scroll.addView(root);
         setContentView(scroll);
     }
 
-    private void saveSettings() {
-        try {
-            int maxDim  = clamp(parse(edMaxDim, Prefs.DEF_MAX_DIM), 200, 2000);
-            int quality = clamp(parse(edQuality, Prefs.DEF_QUALITY), 10, 90);
-            int fps     = clamp(parse(edFps, Prefs.DEF_FPS), 1, 30);
-            int port    = clamp(parse(edPort, Prefs.DEF_PORT), 1024, 65535);
-            Prefs.save(this, maxDim, quality, fps, port);
-            edMaxDim.setText(String.valueOf(maxDim));
-            edQuality.setText(String.valueOf(quality));
-            edFps.setText(String.valueOf(fps));
-            edPort.setText(String.valueOf(port));
-            Toast.makeText(this, "Ayarlar kaydedildi", Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            Toast.makeText(this, "Gecersiz deger", Toast.LENGTH_SHORT).show();
+    // ---------- eylemler ----------
+    private void requestOverlay() {
+        if (Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "İzin zaten verilmiş", Toast.LENGTH_SHORT).show();
+            return;
         }
+        try {
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+            Toast.makeText(this, "ScreenCopy için izni açın", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
+        }
+    }
+
+    private void saveSettings() {
+        int maxDim  = clamp(parse(edMaxDim, Prefs.DEF_MAX_DIM), Prefs.MIN_MAX_DIM, Prefs.MAX_MAX_DIM);
+        int quality = clamp(parse(edQuality, Prefs.DEF_QUALITY), Prefs.MIN_QUALITY, Prefs.MAX_QUALITY);
+        int fps     = clamp(parse(edFps, Prefs.DEF_FPS), Prefs.MIN_FPS, Prefs.MAX_FPS);
+        int port    = clamp(parse(edPort, Prefs.DEF_PORT), 1024, 65535);
+        Prefs.save(this, maxDim, quality, fps, port);
+        edMaxDim.setText(String.valueOf(maxDim));
+        edQuality.setText(String.valueOf(quality));
+        edFps.setText(String.valueOf(fps));
+        edPort.setText(String.valueOf(port));
+        Toast.makeText(this, "Ayarlar kaydedildi", Toast.LENGTH_SHORT).show();
     }
 
     private void showQrDialog() {
         String payload = getLocalIp() + ":" + Prefs.port(this);
         try {
-            Bitmap bmp = new BarcodeEncoder().encodeBitmap(payload, BarcodeFormat.QR_CODE, 700, 700);
+            Bitmap bmp = new BarcodeEncoder().encodeBitmap(payload, BarcodeFormat.QR_CODE, 760, 760);
             ImageView iv = new ImageView(this);
             iv.setImageBitmap(bmp);
-            iv.setPadding(dp(16), dp(16), dp(16), dp(8));
-
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setBackgroundColor(0xFF141A22);
+            box.setPadding(dp(18), dp(18), dp(18), dp(10));
+            iv.setPadding(0, 0, 0, dp(10));
+            box.addView(iv);
             TextView tv = new TextView(this);
             tv.setText(payload);
             tv.setGravity(Gravity.CENTER);
-            tv.setTextSize(16);
-            tv.setPadding(0, 0, 0, dp(16));
-
-            LinearLayout box = new LinearLayout(this);
-            box.setOrientation(LinearLayout.VERTICAL);
-            box.addView(iv);
+            tv.setTextColor(TEXT);
+            tv.setTextSize(17);
             box.addView(tv);
-
             new AlertDialog.Builder(this)
-                    .setTitle("Controller bu kodu tarasin")
                     .setView(box)
                     .setPositiveButton("Kapat", null)
                     .show();
         } catch (Exception e) {
-            Toast.makeText(this, "QR olusturulamadi: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "QR oluşturulamadı", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -214,25 +201,92 @@ public class MainActivity extends AppCompatActivity {
             svc.putExtra(HostService.EXTRA_RESULT_DATA, data);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc);
             else startService(svc);
-            Toast.makeText(this, "Yayin basladi. IP: " + getLocalIp() + ":" + Prefs.port(this),
+            Toast.makeText(this, "Yayın başladı · " + getLocalIp() + ":" + Prefs.port(this),
                     Toast.LENGTH_LONG).show();
         } else if (requestCode == REQ_PROJECTION) {
-            Toast.makeText(this, "Ekran paylasimi iptal edildi", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Ekran paylaşımı iptal edildi", Toast.LENGTH_SHORT).show();
         }
     }
 
-    // --- UI yardımcıları ---
+    // ---------- UI yapı taşları ----------
+    private LinearLayout card(LinearLayout parent, String titleText, String hintText) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(getDrawable(R.drawable.card_bg));
+        c.setPadding(dp(16), dp(14), dp(16), dp(16));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(14);
+        c.setLayoutParams(lp);
+
+        TextView t = new TextView(this);
+        t.setText(titleText);
+        t.setTextColor(TEXT);
+        t.setTextSize(18);
+        t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
+        c.addView(t);
+
+        TextView h = new TextView(this);
+        h.setText(hintText);
+        h.setTextColor(MUTED);
+        h.setTextSize(13);
+        h.setPadding(0, dp(4), 0, dp(10));
+        c.addView(h);
+
+        parent.addView(c);
+        return c;
+    }
+
+    private Button primaryButton(String text, View.OnClickListener l) {
+        return styledButton(text, l, R.drawable.btn_primary, Color.WHITE);
+    }
+
+    private Button secondaryButton(String text, View.OnClickListener l) {
+        return styledButton(text, l, R.drawable.btn_secondary, 0xFFCDD5E0);
+    }
+
+    private Button styledButton(String text, View.OnClickListener l, int bg, int textColor) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextSize(15);
+        b.setTextColor(textColor);
+        b.setBackground(getDrawable(bg));
+        b.setStateListAnimator(null);
+        b.setPadding(dp(16), dp(14), dp(16), dp(14));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(9);
+        b.setLayoutParams(lp);
+        b.setOnClickListener(l);
+        return b;
+    }
+
+    private EditText field(String hint) {
+        EditText et = new EditText(this);
+        et.setHint(hint);
+        et.setTextColor(TEXT);
+        et.setHintTextColor(MUTED);
+        et.setTextSize(15);
+        et.setBackground(getDrawable(R.drawable.field_bg));
+        et.setPadding(dp(14), dp(13), dp(14), dp(13));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(4);
+        et.setLayoutParams(lp);
+        return et;
+    }
+
     private EditText labeledField(LinearLayout parent, String label, int value) {
         TextView tv = new TextView(this);
         tv.setText(label);
-        tv.setTextColor(Color.parseColor("#B0BEC5"));
+        tv.setTextColor(MUTED);
         tv.setTextSize(13);
-        tv.setPadding(0, dp(8), 0, 0);
+        tv.setPadding(0, dp(10), 0, dp(2));
         parent.addView(tv);
-        EditText et = new EditText(this);
+        EditText et = field("");
         et.setInputType(InputType.TYPE_CLASS_NUMBER);
         et.setText(String.valueOf(value));
-        et.setTextColor(Color.WHITE);
         parent.addView(et);
         return et;
     }
@@ -243,42 +297,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
-
-    private TextView sectionLabel(String t) {
-        TextView tv = new TextView(this);
-        tv.setText(t);
-        tv.setTextColor(Color.WHITE);
-        tv.setTextSize(18);
-        tv.setPadding(0, dp(8), 0, dp(4));
-        return tv;
-    }
-
-    private TextView hint(String t) {
-        TextView tv = new TextView(this);
-        tv.setText(t);
-        tv.setTextColor(Color.parseColor("#B0BEC5"));
-        tv.setTextSize(13);
-        tv.setPadding(0, 0, 0, dp(8));
-        return tv;
-    }
-
-    private Button button(String t) {
-        Button b = new Button(this);
-        b.setText(t);
-        b.setAllCaps(false);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(6);
-        b.setLayoutParams(lp);
-        return b;
-    }
-
-    private View spacer(int h) {
-        View v = new View(this);
-        v.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(h)));
-        return v;
-    }
-
     private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density); }
 
     public static String getLocalIp() {

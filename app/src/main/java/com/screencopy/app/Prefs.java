@@ -12,10 +12,14 @@ public final class Prefs {
     public static final String FPS = "fps";
     public static final String PORT = "port";
 
-    public static final int DEF_MAX_DIM = 900;
-    public static final int DEF_QUALITY = 40;
-    public static final int DEF_FPS = 16;
+    public static final int DEF_MAX_DIM = 1600;
+    public static final int DEF_QUALITY = 75;
+    public static final int DEF_FPS = 30;
     public static final int DEF_PORT = Protocol.PORT;
+
+    public static final int MIN_MAX_DIM = 320, MAX_MAX_DIM = 2560;
+    public static final int MIN_QUALITY = 20, MAX_QUALITY = 95;
+    public static final int MIN_FPS = 5, MAX_FPS = 60;
 
     private Prefs() {}
 
@@ -23,9 +27,9 @@ public final class Prefs {
         return c.getSharedPreferences(NAME, Context.MODE_PRIVATE);
     }
 
-    public static int maxDim(Context c)  { return clamp(get(c).getInt(MAX_DIM, DEF_MAX_DIM), 200, 2000); }
-    public static int quality(Context c) { return clamp(get(c).getInt(QUALITY, DEF_QUALITY), 10, 90); }
-    public static int fps(Context c)     { return clamp(get(c).getInt(FPS, DEF_FPS), 1, 30); }
+    public static int maxDim(Context c)  { return clamp(get(c).getInt(MAX_DIM, DEF_MAX_DIM), MIN_MAX_DIM, MAX_MAX_DIM); }
+    public static int quality(Context c) { return clamp(get(c).getInt(QUALITY, DEF_QUALITY), MIN_QUALITY, MAX_QUALITY); }
+    public static int fps(Context c)     { return clamp(get(c).getInt(FPS, DEF_FPS), MIN_FPS, MAX_FPS); }
     public static int port(Context c)    { return clamp(get(c).getInt(PORT, DEF_PORT), 1024, 65535); }
 
     public static long frameIntervalMs(Context c) { return 1000L / fps(c); }

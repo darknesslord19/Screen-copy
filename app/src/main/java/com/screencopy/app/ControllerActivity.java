@@ -8,10 +8,13 @@ import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -27,6 +30,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ControllerActivity extends AppCompatActivity {
 
     private FrameView frameView;
+    private LinearLayout navBar;
+    private TextView showHandle;
     private Socket socket;
     private DataOutputStream out;
     private final AtomicBoolean running = new AtomicBoolean(true);
@@ -44,54 +49,89 @@ public class ControllerActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        // "ip" veya "ip:port"
         String arg = getIntent().getStringExtra("host");
         if (arg != null && arg.contains(":")) {
-            String[] parts = arg.split(":");
-            host = parts[0].trim();
-            try { port = Integer.parseInt(parts[1].trim()); } catch (Exception ignored) {}
-        } else {
-            host = arg;
-        }
+            String[] p = arg.split(":");
+            host = p[0].trim();
+            try { port = Integer.parseInt(p[1].trim()); } catch (Exception ignored) {}
+        } else host = arg;
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.BLACK);
+        FrameLayout rootFl = new FrameLayout(this);
+        rootFl.setBackgroundColor(Color.BLACK);
 
+        // Ekran görüntüsü tüm alanı kaplar (gerçek tam ekran)
         frameView = new FrameView(this);
         frameView.setTouchSender(this::sendTouch);
-        LinearLayout.LayoutParams fvLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        frameView.setLayoutParams(fvLp);
-        root.addView(frameView);
+        rootFl.addView(frameView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // Alt navigasyon çubuğu (gerçek telefon tuşları gibi)
-        LinearLayout navBar = new LinearLayout(this);
+        // Alt kontrol çubuğu (yarı saydam, üstte yüzer)
+        navBar = new LinearLayout(this);
         navBar.setOrientation(LinearLayout.HORIZONTAL);
-        navBar.setBackgroundColor(Color.parseColor("#1A1F24"));
-        navBar.addView(navButton("◀ Geri", v -> sendKey(Protocol.KEY_BACK)));
-        navBar.addView(navButton("● Ana", v -> sendKey(Protocol.KEY_HOME)));
-        navBar.addView(navButton("■ Son", v -> sendKey(Protocol.KEY_RECENTS)));
-        navBar.addView(navButton("⌨ Yaz", v -> showKeyboardDialog()));
-        navBar.addView(navButton("🔔", v -> sendKey(Protocol.KEY_NOTIFICATIONS)));
-        root.addView(navBar);
+        navBar.setBackgroundColor(0xE6141A22);
+        navBar.setPadding(dp(6), dp(6), dp(6), dp(6));
+        navBar.addView(navButton("‹", "Geri", v -> sendKey(Protocol.KEY_BACK)));
+        navBar.addView(navButton("⌂", "Ana", v -> sendKey(Protocol.KEY_HOME)));
+        navBar.addView(navButton("▢", "Son", v -> sendKey(Protocol.KEY_RECENTS)));
+        navBar.addView(navButton("⌨", "Yaz", v -> showKeyboardDialog()));
+        navBar.addView(navButton("🔔", "Bildirim", v -> sendKey(Protocol.KEY_NOTIFICATIONS)));
+        navBar.addView(navButton("⌄", "Gizle", v -> setBarVisible(false)));
+        FrameLayout.LayoutParams navLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
+        rootFl.addView(navBar, navLp);
 
-        setContentView(root);
+        // Çubuk gizliyken alttan küçük tutamak
+        showHandle = new TextView(this);
+        showHandle.setText("⌃");
+        showHandle.setTextColor(Color.WHITE);
+        showHandle.setTextSize(18);
+        showHandle.setGravity(Gravity.CENTER);
+        showHandle.setBackgroundColor(0x99141A22);
+        showHandle.setPadding(dp(18), dp(2), dp(18), dp(2));
+        showHandle.setVisibility(View.GONE);
+        showHandle.setOnClickListener(v -> setBarVisible(true));
+        FrameLayout.LayoutParams hLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        rootFl.addView(showHandle, hLp);
+
+        setContentView(rootFl);
         new Thread(this::networkLoop, "sc-controller").start();
     }
 
-    private Button navButton(String label, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setAllCaps(false);
-        b.setTextColor(Color.WHITE);
-        b.setBackgroundColor(Color.parseColor("#263238"));
-        b.setOnClickListener(l);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        lp.setMargins(2, 4, 2, 4);
-        b.setLayoutParams(lp);
-        return b;
+    private void setBarVisible(boolean visible) {
+        navBar.setVisibility(visible ? View.VISIBLE : View.GONE);
+        showHandle.setVisibility(visible ? View.GONE : View.VISIBLE);
+    }
+
+    private LinearLayout navButton(String glyph, String label, View.OnClickListener l) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER);
+        col.setBackground(getDrawable(R.drawable.nav_btn));
+        col.setPadding(dp(4), dp(7), dp(4), dp(5));
+        col.setClickable(true);
+        col.setOnClickListener(l);
+
+        TextView g = new TextView(this);
+        g.setText(glyph);
+        g.setTextColor(0xFFE6EAF0);
+        g.setTextSize(19);
+        g.setGravity(Gravity.CENTER);
+        col.addView(g);
+
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextColor(0xFF9AA4B2);
+        t.setTextSize(10);
+        t.setGravity(Gravity.CENTER);
+        col.addView(t);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp.setMargins(dp(3), 0, dp(3), 0);
+        col.setLayoutParams(lp);
+        return col;
     }
 
     private void showKeyboardDialog() {
@@ -103,12 +143,28 @@ public class ControllerActivity extends AppCompatActivity {
                 .setView(et)
                 .setPositiveButton("Gönder", (d, w) -> {
                     String t = et.getText().toString();
-                    if (!t.isEmpty()) {
+                    if (!t.isEmpty())
                         sendQueue.offer(new Msg(Protocol.TYPE_TEXT, t.getBytes(StandardCharsets.UTF_8)));
-                    }
                 })
                 .setNegativeButton("Vazgeç", null)
                 .show();
+    }
+
+    // Gerçek tam ekran (sistem çubuklarını gizle)
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) enterImmersive();
+    }
+
+    private void enterImmersive() {
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
     }
 
     private void networkLoop() {
@@ -118,7 +174,7 @@ public class ControllerActivity extends AppCompatActivity {
             socket.setTcpNoDelay(true);
             out = new DataOutputStream(socket.getOutputStream());
             DataInputStream in = new DataInputStream(socket.getInputStream());
-            toast("Baglandi: " + host + ":" + port);
+            toast("Bağlandı: " + host + ":" + port);
             startSender();
 
             BitmapFactory.Options opts = new BitmapFactory.Options();
@@ -131,7 +187,7 @@ public class ControllerActivity extends AppCompatActivity {
                 }
             }
         } catch (Exception e) {
-            toast("Baglanti hatasi: " + e.getMessage());
+            toast("Bağlantı hatası: " + e.getMessage());
         } finally {
             close();
         }
@@ -167,6 +223,8 @@ public class ControllerActivity extends AppCompatActivity {
         running.set(false);
         try { if (socket != null) socket.close(); } catch (Exception ignored) {}
     }
+
+    private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density); }
 
     @Override
     protected void onDestroy() {

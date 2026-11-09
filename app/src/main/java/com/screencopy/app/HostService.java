@@ -20,7 +20,9 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.provider.Settings;
 import android.util.DisplayMetrics;
+import android.view.View;
 import android.view.WindowManager;
 
 import java.io.ByteArrayOutputStream;
@@ -67,6 +69,7 @@ public class HostService extends Service {
     private long lastSentTime;
     private PowerManager.WakeLock wakeLock;
     private android.net.wifi.WifiManager.WifiLock wifiLock;
+    private View keepAwakeView;
 
     @Override
     public void onCreate() {
@@ -100,6 +103,7 @@ public class HostService extends Service {
 
         computeDimensions();
         acquireWakeLock();
+        addKeepAwakeOverlay();
         startCapture();
         running.set(true);
         new Thread(this::serverLoop, "sc-server").start();
@@ -323,6 +327,41 @@ public class HostService extends Service {
         } catch (Exception ignored) {}
     }
 
+    /**
+     * Ekran zaman asimiyla sönünce yansima kararir. Köksüz çözüm: üstten çizim
+     * izni varsa, ekrani açik tutan ama parlakligi en düsük (görünüste kapali)
+     * 1x1 bir overlay ekleyerek ekranin render etmeye devam etmesini saglariz.
+     */
+    private void addKeepAwakeOverlay() {
+        try {
+            if (!Settings.canDrawOverlays(this)) return;
+            WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+            int type = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                    : WindowManager.LayoutParams.TYPE_SYSTEM_ALERT;
+            WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                    1, 1, type,
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                            | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    PixelFormat.TRANSLUCENT);
+            lp.screenBrightness = 0.01f; // ekran açik kalir ama neredeyse kapali görünür
+            keepAwakeView = new View(this);
+            wm.addView(keepAwakeView, lp);
+        } catch (Exception ignored) {}
+    }
+
+    private void removeKeepAwakeOverlay() {
+        try {
+            if (keepAwakeView != null) {
+                WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+                wm.removeView(keepAwakeView);
+                keepAwakeView = null;
+            }
+        } catch (Exception ignored) {}
+    }
+
     private void stopEverything() {
         running.set(false);
         synchronized (frameLock) { frameLock.notifyAll(); }
@@ -333,6 +372,7 @@ public class HostService extends Service {
         try { if (captureThread != null) captureThread.quitSafely(); } catch (Exception ignored) {}
         try { if (wakeLock != null && wakeLock.isHeld()) wakeLock.release(); } catch (Exception ignored) {}
         try { if (wifiLock != null && wifiLock.isHeld()) wifiLock.release(); } catch (Exception ignored) {}
+        removeKeepAwakeOverlay();
         stopForeground(true);
         stopSelf();
     }
